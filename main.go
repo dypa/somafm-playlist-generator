@@ -1,15 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-
-	"golang.org/x/net/html/charset"
+	"strings"
 )
 
 const FEED_URI = "https://somafm.com/channels.xml"
@@ -17,36 +15,37 @@ const SERVER_ID = 6
 const RESULT_FILE_NAME = "somafm.pls"
 
 type Channels struct {
-	XMLName xml.Name `xml:"channels"`
-	Channel []struct {
-		Title       string `xml:"title"`
-		Description string `xml:"description"`
-		Id          string `xml:"id,attr"`
-	} `xml:"channel"`
+	XMLName xml.Name  `xml:"channels"`
+	Channel []Channel `xml:"channel"`
+}
+
+type Channel struct {
+	Title       string `xml:"title"`
+	Description string `xml:"description"`
+	Id          string `xml:"id,attr"`
 }
 
 func main() {
 	var err error
 	var channels Channels
 
-	data, err := loadXmlFromServer()
+	xmlDocument, err := loadXmlFromServer()
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	err = parseXml(data, err, channels)
+	err = parseXml(xmlDocument, err, &channels)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	err = fileGenerator(channels)
+	err = fileGenerator(&channels)
 	if err != nil {
 		log.Fatalln(err)
 	}
-
 }
 
-func fileGenerator(channels Channels) error {
+func fileGenerator(channels *Channels) error {
 	fd, err := os.OpenFile(RESULT_FILE_NAME, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
@@ -70,26 +69,25 @@ func fileGenerator(channels Channels) error {
 	return nil
 }
 
-func parseXml(data []byte, err error, channels Channels) error {
-	reader := bytes.NewReader([]byte(data))
-	decoder := xml.NewDecoder(reader)
-	decoder.CharsetReader = charset.NewReaderLabel
+func parseXml(xmlDocument string, err error, channels *Channels) error {
+	//HACK for charset
+	data := []byte(strings.Replace(xmlDocument, "encoding=\"ISO-8859-1\"", "", 1))
 
-	return decoder.Decode(&channels)
+	return xml.Unmarshal(data, &channels)
 }
 
-func loadXmlFromServer() ([]byte, error) {
+func loadXmlFromServer() (string, error) {
 	response, err := http.Get(FEED_URI)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	defer response.Body.Close()
 
 	data, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return data, nil
+	return string(data), nil
 }
